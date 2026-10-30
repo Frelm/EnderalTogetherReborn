@@ -28,7 +28,7 @@ static constexpr TargetConfig CurrentTarget{ L"Skyrim Special Edition", 489830, 
 #ifdef SKYRIM_TARGET_LEGACY
 #define TILTED_REGISTRY_NAME L"Skyrim Special Edition 1.5"
 #else
-#define TILTED_REGISTRY_NAME SHORT_NAME
+#define TILTED_REGISTRY_NAME L"Enderal Special Edition"
 #endif
 
 // clang-format on
