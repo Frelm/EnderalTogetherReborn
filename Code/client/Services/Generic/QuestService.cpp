@@ -1,3 +1,4 @@
+#include <simpleini/SimpleIni.h>
 #include <TiltedOnlinePCH.h>
 
 #include <Events/ConnectedEvent.h>
@@ -617,13 +618,96 @@ static constexpr std::array kNonSyncableQuestIds = std::to_array<uint32_t>({
     0xF2593 // Skill experience quest
 });
 
+static bool IsEnderalActive() noexcept
+{
+    static int s_isEnderal = -1;
+    if (s_isEnderal == -1)
+    {
+        auto* pModManager = ModManager::Get();
+        s_isEnderal = (pModManager && pModManager->GetByName("Enderal - Forgotten Stories.esm") != nullptr) ? 1 : 0;
+        if (s_isEnderal)
+        {
+            spdlog::info("Enderal detected: activating Enderal quest compatibility guards.");
+        }
+    }
+    return s_isEnderal == 1;
+}
+
+struct EnderalQuestConfig
+{
+    bool disableQuestSync = true;
+    bool blacklistSystemQuests = true;
+    bool loaded = false;
+
+    void Load()
+    {
+        if (loaded)
+            return;
+        loaded = true;
+
+        CSimpleIniA ini;
+        ini.SetUnicode();
+        if (ini.LoadFile("EnderalTogether.ini") == SI_OK || ini.LoadFile("SkyrimTogetherRuntime/EnderalTogether.ini") == SI_OK)
+        {
+            disableQuestSync = ini.GetBoolValue("Enderal", "bDisableQuestSync", true);
+            blacklistSystemQuests = ini.GetBoolValue("Enderal", "bBlacklistSystemQuests", true);
+            spdlog::info("[EnderalTogether]: Loaded config - bDisableQuestSync={}, bBlacklistSystemQuests={}", disableQuestSync, blacklistSystemQuests);
+        }
+        else
+        {
+            spdlog::info("[EnderalTogether]: Using default safe Enderal config (bDisableQuestSync=true, bBlacklistSystemQuests=true)");
+        }
+    }
+};
+
+static EnderalQuestConfig s_enderalQuestConfig;
+
 bool QuestService::IsNonSyncableQuest(TESQuest* apQuest)
 {
     // Quests with no quest stages are never synced. Most TESQues::Type:: quests should
     // be synced, including Type::None and Type::Miscellaneous, but there are a few
     // known exceptions that should be excluded that are in the table.
-    return    apQuest->stages.Empty() 
-           || std::find(kNonSyncableQuestIds.begin(), kNonSyncableQuestIds.end(), apQuest->formID) != kNonSyncableQuestIds.end();
+    if (apQuest->stages.Empty() 
+        || std::find(kNonSyncableQuestIds.begin(), kNonSyncableQuestIds.end(), apQuest->formID) != kNonSyncableQuestIds.end())
+    {
+        return true;
+    }
+
+    if (IsEnderalActive())
+    {
+        s_enderalQuestConfig.Load();
+        if (s_enderalQuestConfig.disableQuestSync)
+        {
+            // Exploration Co-op mode: Enderal quests advance locally per-player.
+            // Players still share the world, spawns, enemies, combat, and trading.
+            return true;
+        }
+
+        if (s_enderalQuestConfig.blacklistSystemQuests)
+        {
+            const char* id = apQuest->idName.AsAscii();
+            if (id && *id)
+            {
+                if (_strnicmp(id, "_00E_Player", 11) == 0 ||
+                    _strnicmp(id, "_00E_Level", 10) == 0 ||
+                    _strnicmp(id, "_00E_Perk", 9) == 0 ||
+                    _strnicmp(id, "_00E_Meditation", 15) == 0 ||
+                    _strnicmp(id, "_00E_Skill", 10) == 0 ||
+                    _strnicmp(id, "_00E_Stat", 9) == 0 ||
+                    _strnicmp(id, "_00E_Sys", 8) == 0 ||
+                    _strnicmp(id, "_00E_FS_Player", 14) == 0 ||
+                    _strnicmp(id, "_00E_Weather", 12) == 0 ||
+                    _strnicmp(id, "_00E_GamePlay", 13) == 0 ||
+                    _strnicmp(id, "_00E_Intro", 10) == 0)
+                {
+                    spdlog::info("QuestService: Ignored Enderal system quest from sync: {:X} ({})", apQuest->formID, id);
+                    return true;
+                }
+            }
+        }
+    }
+
+    return false;
 }
 
 void QuestService::DebugDumpQuests()
