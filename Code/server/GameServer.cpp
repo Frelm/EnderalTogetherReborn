@@ -42,6 +42,11 @@ Console::Setting uTimeScale{"Gameplay:uTimeScale", "How many seconds pass ingame
 Console::Setting bSyncPlayerCalendar{"Gameplay:bSyncPlayerCalendar", "Syncs up all player calendars to be the same day, month, and year. This uses the date of the player with the furthest ahead date at connection.", false};
 Console::Setting bAutoPartyJoin{"Gameplay:bAutoPartyJoin", "Join parties automatically, as long as there is only one party in the server", true};
 Console::Setting bEnableItemDrops{"Gameplay:bEnableItemDrops", "Syncs items dropped by players", true};
+Console::Setting bEnableDynamicScaling{"Gameplay:bEnableDynamicScaling", "Enable dynamic co-op stat scaling based on active players in cell", true};
+Console::Setting fCoopHealthScale2P{"Gameplay:fCoopHealthScale2P", "Effective health multiplier for 2 players (default 1.75 for +75% health)", 1.75f};
+Console::Setting fCoopDamageScale2P{"Gameplay:fCoopDamageScale2P", "Damage multiplier for 2 players (default 1.25 for +25% damage)", 1.25f};
+Console::Setting fCoopHealthScale3P{"Gameplay:fCoopHealthScale3P", "Effective health multiplier for 3+ players (default 2.30 for +130% health)", 2.30f};
+Console::Setting fCoopDamageScale3P{"Gameplay:fCoopDamageScale3P", "Damage multiplier for 3+ players (default 1.40 for +40% damage)", 1.40f};
 // ModPolicy Stuff
 Console::Setting bEnableModCheck{"ModPolicy:bEnableModCheck", "Refuse clients whose mods do not match Data/loadorder.txt", false, Console::SettingsFlags::kLocked};
 Console::Setting bAllowSKSE{"ModPolicy:bAllowSKSE", "Allow players using SKSE to join. Applies even when bEnableModCheck is off", true, Console::SettingsFlags::kLocked};
@@ -143,6 +148,11 @@ ServerSettings GetSettings()
     settings.SyncPlayerCalendar = bSyncPlayerCalendar;
     settings.AutoPartyJoin = bAutoPartyJoin;
     settings.ItemDropsEnabled = bEnableItemDrops;
+    settings.DynamicScalingEnabled = bEnableDynamicScaling;
+    settings.HealthScale2P = fCoopHealthScale2P.value_as<float>();
+    settings.DamageScale2P = fCoopDamageScale2P.value_as<float>();
+    settings.HealthScale3P = fCoopHealthScale3P.value_as<float>();
+    settings.DamageScale3P = fCoopDamageScale3P.value_as<float>();
     return settings;
 }
 
