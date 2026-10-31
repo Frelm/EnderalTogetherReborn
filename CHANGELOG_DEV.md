@@ -63,40 +63,55 @@
 
 ---
 
-## 3. Active Investigation: Dungeon & Puzzle Synchronization
+## 3. Dungeon & Puzzle Synchronization (Resolved)
 
-### 3.1 First Case: The Temple Columns / Skeleton Key Puzzle (`_00E_MQ00TemplePuzzleSCN`)
-* **Symptom:** In the early temple ruins, when one player inserts the Temple Key (Skeleton Key) to raise stone columns/pillars, the columns only rise for the activating player. The remote player sees nothing happen.
-* **Root Cause Found in Enderal Script:**
-  * The puzzle is handled by `_00E_MQ00TemplePuzzleSCN.psc`.
-  * Lines 4–6:
+### 3.1 Temple Columns / Skeleton Key Puzzle (`_00E_MQ00TemplePuzzleSCN`)
+* **Symptom:** In the early temple ruins, when one player inserted the Temple Key into the pedestal to raise the stone columns/pillars, the columns only moved for the activating player. The remote player saw nothing happen.
+* **Root Cause:**
+  * In `_00E_MQ00TemplePuzzleSCN.psc`, activation strictly required:
     ```papyrus
-    Event OnActivate(ObjectReference akActionRef)
-        Actor PlayerRef = Game.GetForm(0x14) as Actor
-        if akActionRef == PlayerRef && !Activated && (PlayerRef.GetItemCount(_00E_MQ00TempleKey) >= 1)
+    Actor PlayerRef = Game.GetForm(0x14) as Actor
+    if akActionRef == PlayerRef && !Activated && (PlayerRef.GetItemCount(_00E_MQ00TempleKey) >= 1)
     ```
-  * In Skyrim Together:
-    1. Player 1 activates the pedestal. Player 1 is `Game.GetForm(0x14)` on their machine, has the key, and triggers the animation/translation of linked columns.
-    2. Player 1's client sends `ActivateRequest` to the server, which broadcasts `NotifyActivate` to Player 2.
-    3. Player 2's client executes `pObject->Activate(pActor, 0, nullptr, 1, 0)` in `ObjectService::OnActivateNotify`, where `pActor` is **Player 1's remote actor**.
-    4. On Player 2's machine, the Papyrus engine executes `OnActivate(akActionRef)`.
-    5. On Player 2's machine, `PlayerRef = Game.GetForm(0x14)` evaluates to **Player 2**.
-    6. Therefore, `akActionRef == PlayerRef` **FAILS**, and `PlayerRef.GetItemCount` also fails!
-    7. As a result, the puzzle logic never executes on Player 2's game.
+  * When Player 1 activated the keyhole, STR sent `NotifyActivate` to Player 2. On Player 2's client, `akActionRef` was Player 1's remote actor, while `PlayerRef` evaluated to Player 2 (local player). Thus `akActionRef == PlayerRef` evaluated to `false`, and the script aborted.
+* **Fix:**
+  * Updated `_00E_MQ00TemplePuzzleSCN.psc` to verify if the activator is either the local player (with key) or a remote player using `SkyrimTogetherUtils.IsRemotePlayer(actActor)`:
+    ```papyrus
+    bool isLocal = (akActionRef == PlayerRef)
+    bool isRemote = (actActor != None && (SkyrimTogetherUtils.IsRemotePlayer(actActor) || (actActor != PlayerRef && SkyrimTogetherUtils.IsPlayer(actActor))))
+    if !Activated && ((isLocal && PlayerRef.GetItemCount(_00E_MQ00TempleKey) >= 1) || isRemote)
+    ```
+  * If local, consumes 1 key. If remote, skips inventory removal (the remote player already spent the key) and immediately begins the synchronized column rise animation and sound effects.
 
-### 3.2 Meditation Synchronization Observation
-* **Symptom:** When one player meditates to spend Memory Points, the other player is also transported to the meditation temple.
-* **Root Cause Found:**
+### 3.2 Meditation Co-op Isolation (`_00e_class_openclassmenuscript`)
+* **Symptom:** When Player 1 pressed the hotkey to meditate (to spend Memory Points), Player 2 was unexpectedly transported to the meditation temple as well.
+* **Root Cause:**
   * Meditating triggers `_00E_Class_Meditate` / `_00E_Class_OpenClassMenuSpell`.
   * `MagicService` replicates spell target additions across the network.
-  * When Player 2 receives the magic effect, `_00E_Class_OpenClassMenuScript.psc` executes `PlayerREF.MoveTo(_00E_ClassMenuOrigin)`, where `PlayerREF` is the local player (`0x14`).
-* **Design Decision:** Non-critical for now. Focus primarily on dungeon progression and puzzle synchronization.
+  * In `_00e_class_openclassmenuscript.psc`, `Event OnEffectStart(Actor TheTarget, Actor TheCaster)` did not check whether the current caster was the local player before calling `PlayerREF.MoveTo(_00E_ClassMenuOrigin)`.
+* **Fix:**
+  * Added guard at the very beginning of `OnEffectStart`:
+    ```papyrus
+    If TheCaster != Game.GetPlayer()
+        Return
+    EndIf
+    ```
+  * When Player 1 meditates, Player 2's client receives the magic effect notification, sees `TheCaster != Game.GetPlayer()`, and returns immediately without interrupting Player 2 or moving them.
 
----
+### 3.3 Dungeon Lifts & Elevators (`_00e_dungeonliftscript`)
+* **Symptom:** Dungeon lifts/elevators triggered by remote players or linked levers did not move for both players.
+* **Fix:**
+  * Updated `_00e_dungeonliftscript.psc` so that `OnActivate` accepts activations from local player, remote players via `SkyrimTogetherUtils.IsPlayer(actActor)`, and non-actor switch triggers (`!(akActionRef as Actor)`).
+  * Local player controls are only disabled if the local player is the direct activator.
 
-## 4. Work In Progress & Next Steps
-* [ ] Design a clean, robust solution for Enderal puzzle activators:
-  * Pattern A: A companion `.esp` / Papyrus patch (`SkyrimTogetherEnderalPatches.esp` or patched `.pex` scripts) using `SkyrimTogetherUtils.IsPlayer(actorRef)` so both local and remote players can satisfy the activation condition.
-  * Pattern B: Engine-level activation helper in `ObjectService.cpp`.
-* [ ] Audit other common Enderal dungeon puzzles (pillar wheels, pressure plates, pull levers, barrier gates).
-* [ ] Verify fix in-game with test instances.
+### 3.4 Temple Exit Door (`_00e_mqp03_exitdoorscript`)
+* **Fix:** Updated `_00e_mqp03_exitdoorscript.psc` so activating the exit door by either player properly updates the quest stage.
+
+### 3.5 Deployment
+* Recompiled all 4 scripts into `.pex` using native `PapyrusCompiler.exe`.
+* Synchronized `.pex` and `.psc` files to:
+  * Local source repo: `GameFiles/Skyrim/scripts/`
+  * Both MO2 test instances: `mods/EnderalTogetherReborn/scripts/`
+  * Base game / Vortex directory: `Data/scripts/`
+  * Release archives: `EnderalTogetherReborn.zip` and `EnderalTogetherReborn-Client-v1.8.4.zip`.
+* Committed (`534b7d2a`) and pushed to GitHub `origin/main`.
