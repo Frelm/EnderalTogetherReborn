@@ -48,10 +48,6 @@
 #include <Forms/AlchemyItem.h>
 #include <Forms/SpellItem.h>
 #include <Forms/TESShout.h>
-#include <Components/FormIdComponent.h>
-#include <Components/RemoteComponent.h>
-#include <Forms/TESObjectCELL.h>
-#include <Forms/TESWorldSpace.h>
 #include <Forms/TESObjectCELL.h>
 
 #include <Structs/Skyrim/AnimationGraphDescriptor_BHR_Master.h>
@@ -997,40 +993,6 @@ bool TP_MAKE_THISCALL(HookSpawnActorInWorld, Actor)
     return TiltedPhoques::ThisCall(RealSpawnActorInWorld, apThis);
 }
 
-static uint32_t GetNearbyPlayerCount(Actor* apActor)
-{
-    if (!apActor || !apActor->parentCell)
-        return 1;
-
-    uint32_t count = 1; // Local player
-    auto remoteView = World::Get().view<FormIdComponent, RemoteComponent>();
-    for (auto entity : remoteView)
-    {
-        const auto& formIdComponent = remoteView.get<FormIdComponent>(entity);
-        auto* pRemoteActor = Cast<Actor>(TESForm::GetById(formIdComponent.Id));
-        if (pRemoteActor && pRemoteActor->GetExtension() && pRemoteActor->GetExtension()->IsRemotePlayer())
-        {
-            if (pRemoteActor->parentCell == apActor->parentCell)
-            {
-                count++;
-            }
-            else if (pRemoteActor->parentCell && apActor->parentCell &&
-                     pRemoteActor->parentCell->worldspace &&
-                     pRemoteActor->parentCell->worldspace == apActor->parentCell->worldspace)
-            {
-                float dx = pRemoteActor->position.x - apActor->position.x;
-                float dy = pRemoteActor->position.y - apActor->position.y;
-                float dz = pRemoteActor->position.z - apActor->position.z;
-                if ((dx * dx + dy * dy + dz * dz) <= (8000.0f * 8000.0f))
-                {
-                    count++;
-                }
-            }
-        }
-    }
-    return count;
-}
-
 TP_THIS_FUNCTION(TDamageActor, bool, Actor, float aDamage, Actor* apHitter, bool aKillMove);
 static TDamageActor* RealDamageActor = nullptr;
 
@@ -1041,48 +1003,6 @@ bool TP_MAKE_THISCALL(HookDamageActor, Actor, float aDamage, Actor* apHitter, bo
         World::Get().GetRunner().Trigger(HitEvent(apHitter->formID, apThis->formID));
 
     float realDamage = GameplayFormulas::CalculateRealDamage(apThis, aDamage, aKillMove);
-
-    const auto& serverSettings = World::Get().GetServerSettings();
-    if (serverSettings.DynamicScalingEnabled)
-    {
-        const auto* pExHittee = apThis->GetExtension();
-        const auto* pExHitter = apHitter ? apHitter->GetExtension() : nullptr;
-
-        bool isHitteePlayer = pExHittee && pExHittee->IsPlayer();
-        bool isHitterPlayer = pExHitter && pExHitter->IsPlayer();
-
-        if (isHitteePlayer != isHitterPlayer)
-        {
-            uint32_t playerCount = GetNearbyPlayerCount(apThis);
-            float healthMult = 1.0f;
-            float damageMult = 1.0f;
-
-            if (playerCount == 2)
-            {
-                healthMult = serverSettings.HealthScale2P;
-                damageMult = serverSettings.DamageScale2P;
-            }
-            else if (playerCount >= 3)
-            {
-                healthMult = serverSettings.HealthScale3P;
-                damageMult = serverSettings.DamageScale3P;
-            }
-
-            if (isHitterPlayer && !isHitteePlayer)
-            {
-                if (healthMult > 0.05f)
-                {
-                    realDamage /= healthMult;
-                    aDamage /= healthMult;
-                }
-            }
-            else if (!isHitterPlayer && isHitteePlayer)
-            {
-                realDamage *= damageMult;
-                aDamage *= damageMult;
-            }
-        }
-    }
 
     float currentHealth = apThis->GetActorValue(ActorValueInfo::kHealth);
     bool wouldKill = (currentHealth - realDamage) <= 0.f;

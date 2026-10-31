@@ -18,9 +18,4 @@ struct ServerSettings
     bool SyncPlayerCalendar{};
     bool AutoPartyJoin{};
     bool ItemDropsEnabled{};
-    bool DynamicScalingEnabled{true};
-    float HealthScale2P{1.75f};
-    float DamageScale2P{1.25f};
-    float HealthScale3P{2.30f};
-    float DamageScale3P{1.40f};
 };
