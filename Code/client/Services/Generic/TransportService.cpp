@@ -25,6 +25,32 @@
 
 #include <ScriptExtender.h>
 #include <Services/DiscordService.h>
+#include <simpleini/SimpleIni.h>
+
+static std::string s_activeProtocolVersion;
+
+static std::string GetProtocolVersion()
+{
+    if (!s_activeProtocolVersion.empty())
+        return s_activeProtocolVersion;
+
+    CSimpleIniA ini;
+    ini.SetUnicode();
+    if (ini.LoadFile("EnderalTogether.ini") == SI_OK || ini.LoadFile("SkyrimTogetherRuntime/EnderalTogether.ini") == SI_OK)
+    {
+        const char* pVer = ini.GetValue("Enderal", "sProtocolVersion", nullptr);
+        if (pVer && *pVer)
+        {
+            s_activeProtocolVersion = pVer;
+            spdlog::info("[TransportService] Using configured protocol version from INI: {}", s_activeProtocolVersion);
+            return s_activeProtocolVersion;
+        }
+    }
+
+    s_activeProtocolVersion = BUILD_COMMIT;
+    spdlog::info("[TransportService] Using protocol version: {}", s_activeProtocolVersion);
+    return s_activeProtocolVersion;
+}
 
 #include <algorithm>
 #include <cctype>
@@ -268,7 +294,7 @@ void TransportService::ArmConnectionWatchdog(const std::string& acEndpoint) noex
 void TransportService::OnConnected()
 {
     AuthenticationRequest request{};
-    request.Version = BUILD_COMMIT;
+    request.Version = GetProtocolVersion();
     request.SKSEActive = IsScriptExtenderLoaded();
     request.MO2Active = GetModuleHandleW(kMO2DllName);
 
@@ -693,8 +719,10 @@ void TransportService::HandleAuthenticationResponse(const AuthenticationResponse
     switch (acMessage.Type)
     {
     case AR::kWrongVersion:
+        spdlog::warn("[TransportService] Server expected version '{}', sent '{}'. Adopting server version for next attempt.", acMessage.Version, GetProtocolVersion());
+        s_activeProtocolVersion = acMessage.Version;
         ErrorInfo += "\"error\": \"wrong_version\", \"data\": {";
-        ErrorInfo += fmt::format("\"expectedVersion\": \"{}\", \"version\": \"{}\"", acMessage.Version, BUILD_COMMIT);
+        ErrorInfo += fmt::format("\"expectedVersion\": \"{}\", \"version\": \"{}\"", acMessage.Version, GetProtocolVersion());
         ErrorInfo += "}";
         break;
     case AR::kModsMismatch:
