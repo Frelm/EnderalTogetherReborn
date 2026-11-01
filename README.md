@@ -19,19 +19,10 @@
 
 ---
 
-## Features & Enderal Enhancements
+## Features
 
 * **True Co-Op Exploration:** Explore the continent of Vyn together, take on bounties, delve into dungeons, and fight side-by-side.
 * **Synchronized Combat & Spawns:** Shared NPC spawns, health, combat AI, animations, and native shared XP progression.
-* **Enderal Puzzle & Mechanism Fixes:**
-  * **Temple Column Puzzle (`_00E_MQ00TemplePuzzleSCN`):** Fixed an issue where the early ruin columns only translated for the activating player. Both local and remote activations now properly animate.
-  * **Dungeon Lifts & Elevators (`_00e_dungeonliftscript`):** Moving platforms and chains sync across all connected clients.
-  * **Temple Exit Doors (`_00e_mqp03_exitdoorscript`):** Synchronized state progression for ruin exits.
-* **Isolated Meditation (`_00e_class_openclassmenuscript`):**
-  * Meditating to spend Memory Points transports only the casting player to the strange place; party members remain undisturbed in the world.
-* **Engine & Profile Isolation:**
-  * Uses dedicated Enderal Special Edition registry keys and profiles, completely isolated from vanilla Skyrim SE installations.
-  * Bundled crash prevention overrides and null-pointer checks for Enderal's unique game environment.
 * **Target Runtime:**
   * Built natively for **Enderal Special Edition runtime 1.7.104.0** (standard Steam version).
 
