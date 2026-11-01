@@ -13,6 +13,7 @@ if is_plat("windows") then
     add_syslinks("kernel32")
     set_arch("x64")
     set_runtimes("MT")
+    add_defines("_CRT_SECURE_NO_WARNINGS")
 end
 
 if is_plat("linux") then
