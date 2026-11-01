@@ -1,50 +1,126 @@
-# Skyrim Together
-#### codename "TiltedEvolution"
-![Build status](https://github.com/tiltedphoques/TiltedEvolution/workflows/Build%20windows/badge.svg?branch=master) [![Build linux](https://github.com/tiltedphoques/TiltedEvolution/actions/workflows/linux.yml/badge.svg)](https://github.com/tiltedphoques/TiltedEvolution/actions/workflows/linux.yml)  [![Discord](https://img.shields.io/discord/247835175860305931.svg?label=&logo=discord&logoColor=ffffff&color=7389D8&labelColor=6A7EC2)](https://discord.gg/skyrimtogether)
+# Enderal Together Reborn
 
-<img src="https://avatars.githubusercontent.com/u/52131158?s=200&v=4" align="right"
-     alt="Size Limit logo by Anton Lovchikov" width="110" height="100">
+[![License: GPL-3.0](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
+[![Target: Enderal SE](https://img.shields.io/badge/Game-Enderal%20SE%20(1.7.104)-orange.svg)](https://store.steampowered.com/app/976620/Enderal_Forgotten_Stories_Special_Edition/)
+[![Protocol: v1.8.4](https://img.shields.io/badge/Protocol-v1.8.4-green.svg)](https://github.com/Frelm/EnderalTogetherReborn/releases)
 
-TiltedEvolution is a framework created to enable multiplayer in Bethesda games, currently supporting **Skyrim Special Edition**.
+**Enderal Together Reborn** is a multiplayer co-op modification enabling 2–8 players to experience the world of Vyn together in *Enderal: Forgotten Stories (Special Edition)*.
 
-## Getting started
-To play Skyrim Together, go to the [nexus page](https://www.nexusmods.com/skyrimspecialedition/mods/69993).
+---
 
-For general information, go to the [TiltedEvolution Wiki](https://wiki.tiltedphoques.com/tilted-online/).
+## Credits & Acknowledgements
 
-Check out the [build guide](https://wiki.tiltedphoques.com/tilted-online/technical-documentation/build-guide) for setup and development info on the project. When writing code, check the CODE_GUIDELINES.md and make sure to run clang-format!
+* **[Skyrim Together Reborn](https://github.com/tiltedphoques/TiltedEvolution) (Tilted Phoques):**
+  This project is a dedicated fork of **Skyrim Together Reborn** (codename *TiltedEvolution*). Full credit goes to the **Tilted Phoques** development team for their monumental work creating the reverse-engineering framework, networking layer, client-server architecture, and UI.
+* **[SureAI](https://sureai.net/):**
+  The creators of *Enderal: Forgotten Stories*, for crafting one of the greatest total conversion RPGs of all time.
+* **Eddoursul & the Enderal SE Team:**
+  For porting and maintaining *Enderal Special Edition*.
 
-## Reporting bugs
-If you would like to report a bug please report them in the "Issues" tab on this page. Detailed and reproducible bug reports are of great importance for the development of the project.
+---
 
-## Contributing
-Have some experience in C++, and want to help advance the project faster? Contribute!
-- Check the issues, it's a good place to start when you don't know what to do.
-- Fork the repository and create pull requests to this repository.
-- Create pull requests to the "dev" branch, not to master.
-- Try to keep your code clean, following the code guidelines.
+## Features & Enderal Enhancements
 
-## Main project source tree
+* **True Co-Op Exploration:** Explore the continent of Vyn together, take on bounties, delve into dungeons, and fight side-by-side.
+* **Synchronized Combat & Spawns:** Shared NPC spawns, health, combat AI, animations, and native shared XP progression.
+* **Enderal Puzzle & Mechanism Fixes:**
+  * **Temple Column Puzzle (`_00E_MQ00TemplePuzzleSCN`):** Fixed an issue where the early ruin columns only translated for the activating player. Both local and remote activations now properly animate.
+  * **Dungeon Lifts & Elevators (`_00e_dungeonliftscript`):** Moving platforms and chains sync across all connected clients.
+  * **Temple Exit Doors (`_00e_mqp03_exitdoorscript`):** Synchronized state progression for ruin exits.
+* **Isolated Meditation (`_00e_class_openclassmenuscript`):**
+  * Meditating to spend Memory Points transports only the casting player to the strange place; party members remain undisturbed in the world.
+* **Engine & Profile Isolation:**
+  * Uses dedicated Enderal Special Edition registry keys and profiles, completely isolated from vanilla Skyrim SE installations.
+  * Bundled crash prevention overrides and null-pointer checks for Enderal's unique game environment.
+* **Target Runtime:**
+  * Built natively for **Enderal Special Edition runtime 1.7.104.0** (standard Steam version).
 
-* [**client/**](./Code/client): Skyrim SE client: engine hooks, reverse-engineered game types and the sync logic.
-* [**immersive_launcher/**](./Code/immersive_launcher): `SkyrimTogether.exe`, which starts the game with the client loaded.
-* [**immersive_elf/**](./Code/immersive_elf): `EarlyLoad.dll` helper DLL for the launcher. Detects if Mod Organizer 2 was injected first.
-* [**tp_process/**](./Code/tp_process): Worker for the CEF (Chromium Embedded Framework) overlay.
-* [**skyrim_ui/**](./Code/skyrim_ui): In-game UI, written in Angular/TypeScript.
-* [**server/**](./Code/server): Game server (`STServer.dll`).
-* [**server_runner/**](./Code/server_runner): Dedicated server executable that hosts the server DLL.
-* [**encoding/**](./Code/encoding): Network message and struct definitions shared by the client and server.
-* [**common/**](./Code/common), [**base/**](./Code/base): Shared utilities.
-* [**components/**](./Code/components): Shared modules (console/settings, ESP loader, resources, ImGui).
-* [**tests/**](./Code/tests): Unit tests.
-* [**GameFiles/**](./GameFiles): Plugins, scripts and assets shipped with the mod.
-* [**Libraries/**](./Libraries): Networking, hooking, reverse-engineering and UI libraries (git submodules).
-* [**Tools/**](./Tools): Reverse-engineering and address scripts.
+---
+
+## Getting Started
+
+### 1. Requirements
+* A clean installation of **[Enderal: Forgotten Stories (Special Edition)](https://store.steampowered.com/app/976620/Enderal_Forgotten_Stories_Special_Edition/)** on Steam.
+* Recommended: **[Mod Organizer 2](https://github.com/ModOrganizer2/modorganizer)** or manual installation.
+
+### 2. Client Setup
+1. Download `EnderalTogetherReborn-Client-v1.8.4.zip` from the [Releases](https://github.com/Frelm/EnderalTogetherReborn/releases) tab.
+2. Install the archive through Mod Organizer 2 as a mod, or extract its contents directly into your game's root directory.
+3. Launch the game using `SkyrimTogether.exe` (located in `SkyrimTogetherRuntime/`).
+4. Press **F2** (or your configured hotkey) in-game to open the party and connection overlay.
+
+### 3. Server Setup
+1. Download `EnderalTogether-Server-v1.8.4.zip` from [Releases](https://github.com/Frelm/EnderalTogetherReborn/releases).
+2. Extract the server files to any folder or host machine.
+3. Edit `config/STServer.ini` to adjust your server port, player limit, or password.
+4. Launch `SkyrimTogetherServer.exe`.
+5. If hosting over the internet, forward port **10578 UDP** (default).
+
+---
+
+## Building from Source
+
+This project uses the **[xmake](https://xmake.io/)** build utility and requires **Visual Studio 2022 (MSVC v143, C++20)**.
+
+### Prerequisites
+1. **Visual Studio 2022 Community** (Workload: *Desktop development with C++*, MSVC v143, Windows 10/11 SDK).
+2. **Git** with submodule support.
+3. **xmake** (`winget install xmake` or download from [xmake.io](https://xmake.io/)).
+
+### Step-by-Step Build Instructions
+
+1. **Clone the repository recursively (required for submodules in `/Libraries`):**
+   ```bash
+   git clone --recursive https://github.com/Frelm/EnderalTogetherReborn.git
+   cd EnderalTogetherReborn
+   ```
+   *(If already cloned without `--recursive`, run: `git submodule update --init --recursive`)*
+
+2. **Configure the build:**
+   ```bash
+   xmake f -m release -y
+   ```
+   *xmake will automatically resolve and download package dependencies (such as CEF and Discord).*
+
+3. **Compile the mod targets:**
+   ```bash
+   # Build the client launcher (SkyrimTogether.exe)
+   xmake build SkyrimImmersiveLauncher
+
+   # Build the dedicated server (SkyrimTogetherServer.exe + STServer.dll)
+   xmake build SkyrimTogetherServer
+   ```
+
+4. **(Optional) Generate a Visual Studio 2022 Solution:**
+   ```bash
+   xmake project -k vsxmake
+   ```
+   Open `vsxmake2022/EnderalTogether-src.sln` directly in Visual Studio 2022.
+
+### Output Binaries
+Compiled files will be located in:
+`build/windows/x64/release/`
+* `SkyrimTogether.exe` (Launcher + Client)
+* `SkyrimTogetherServer.exe` (Dedicated Server Host)
+* `STServer.dll` (Server Logic)
+* `EarlyLoad.dll` (MO2 / Early Loader)
+* `TPProcess.exe` (UI Overlay Worker)
+
+---
+
+## Project Structure
+
+* [**Code/client/**](./Code/client): Client logic, engine hooks, Enderal quest/event guards, and synchronization handlers.
+* [**Code/immersive_launcher/**](./Code/immersive_launcher): `SkyrimTogether.exe` launcher, process injection, and address library loader.
+* [**Code/server/**](./Code/server): Dedicated server core (`STServer.dll`).
+* [**Code/server_runner/**](./Code/server_runner): `SkyrimTogetherServer.exe` runner for hosting dedicated servers.
+* [**Code/encoding/**](./Code/encoding): Shared network protocol packets and serializer structs.
+* [**Code/skyrim_ui/**](./Code/skyrim_ui): CEF-based Angular in-game UI overlay.
+* [**GameFiles/**](./GameFiles): Papyrus scripts, quest patches, and assets shipped with the mod.
+* [**Libraries/**](./Libraries): Git submodules (TiltedConnect, TiltedHooks, TiltedReverse, TiltedUI).
+
+---
 
 ## License
-[![GNU GPLv3 Image](https://www.gnu.org/graphics/gplv3-127x51.png)](http://www.gnu.org/licenses/gpl-3.0.en.html)
 
-TiltedEvolution is free software: you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation, either version 3 of the License, or
-(at your option) any later version.
+This project is licensed under the **GNU General Public License v3.0 (GPLv3)** in accordance with the upstream TiltedEvolution codebase. See [LICENSE](./LICENSE) for details.
