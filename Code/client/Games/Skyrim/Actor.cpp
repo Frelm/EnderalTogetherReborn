@@ -155,7 +155,9 @@ float Actor::GetSpeed() noexcept
 void Actor::SetSpeed(float aSpeed) noexcept
 {
     static BSFixedString speedSampledStr("SpeedSampled");
+    static BSFixedString speedStr("speed");
     animationGraphHolder.SetVariableFloat(&speedSampledStr, aSpeed);
+    animationGraphHolder.SetVariableFloat(&speedStr, aSpeed);
 }
 
 TESNPC* Actor::GetLeveledPick() const noexcept
@@ -180,7 +182,11 @@ void Actor::ForcePosition(const NiPoint3& acPosition) noexcept
     ScopedReferencesOverride recursionGuard;
 
     bool updateController = true;
-    if (GetExtension()->IsRemote() && currentProcess)
+    if (actorState.IsSittingOrSleeping() || IsDead())
+    {
+        updateController = false;
+    }
+    else if (GetExtension()->IsRemote() && currentProcess)
     {
         if (auto* pController = currentProcess->GetCharController())
         {
@@ -945,11 +951,11 @@ char TP_MAKE_THISCALL(HookSetPosition, Actor, NiPoint3& aPosition)
     const auto pExtension = apThis ? apThis->GetExtension() : nullptr;
     const auto bIsRemote = pExtension && pExtension->IsRemote();
 
-    if (bIsRemote && !ScopedReferencesOverride::IsOverriden())
+    if (bIsRemote && !apThis->IsDead() && !ScopedReferencesOverride::IsOverriden())
         return 1;
 
     // Don't interfere with non actor references, or the player, or if we are calling our self
-    if (apThis->formType != Actor::Type || apThis == PlayerCharacter::Get() || ScopedReferencesOverride::IsOverriden())
+    if (apThis->formType != Actor::Type || apThis == PlayerCharacter::Get() || apThis->IsDead() || ScopedReferencesOverride::IsOverriden())
         return TiltedPhoques::ThisCall(RealSetPosition, apThis, aPosition);
 
     ScopedReferencesOverride recursionGuard;
@@ -1334,6 +1340,8 @@ bool Actor::IsSpeakingInScene()
 char TP_MAKE_THISCALL(HookActorProcess, Actor, float aDeltaTime)
 {
     // Suppress local movement for remote actors, but preserve controller timing.
+    if (apThis->IsDead())
+        return TiltedPhoques::ThisCall(RealActorProcess, apThis, aDeltaTime);
     if (apThis->GetExtension()->IsRemote())
     {
         if (apThis->currentProcess)

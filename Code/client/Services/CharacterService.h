@@ -145,6 +145,13 @@ private:
     // Written from const message handlers, drained by ProcessLeveledConforms.
     mutable Map<uint32_t, uint32_t> m_pendingLeveledConforms{};
 
+    struct DeadActorSyncState
+    {
+        std::chrono::steady_clock::time_point DeathTime{};
+        glm::vec3 LastSyncedPos{};
+    };
+    mutable Map<uint32_t, DeadActorSyncState> m_deadActorSyncs{};
+
     entt::scoped_connection m_referenceAddedConnection;
     entt::scoped_connection m_referenceRemovedConnection;
     entt::scoped_connection m_updateConnection;

@@ -80,8 +80,11 @@ bool HookGraphNotify(void* apHolder, BSFixedString* apEvent)
 {
     const bool cResult = s_realGraphNotify(apHolder, apEvent);
 
+    if (!apHolder || !apEvent || !apEvent->data)
+        return cResult;
+
     auto* pActor = reinterpret_cast<Actor*>(static_cast<uint8_t*>(apHolder) - s_graphHolderOffset);
-    if (apEvent && apEvent->data && pActor->GetExtension()->IsRemotePlayer() && IsCastingRelatedEvent(apEvent->data))
+    if (pActor && pActor->formType == FormType::Character && pActor->GetExtension() && pActor->GetExtension()->IsRemotePlayer() && IsCastingRelatedEvent(apEvent->data))
     {
         static uint32_t s_logged = 0;
         if (s_logged < 600)
@@ -139,6 +142,15 @@ void AnimationSystem::Update(World& aWorld, Actor* apActor, RemoteAnimationCompo
         }
     }
 
+    if (apActor->IsDead())
+    {
+        actions.clear();
+        aAnimationComponent.ReplayCount = 0;
+        return;
+    }
+
+    for (size_t processedCount = 0; processedCount < 8 && !actions.empty(); ++processedCount)
+    {
     const auto it = std::begin(actions);
     if (it != std::end(actions) && it->Tick <= aTick)
     {
@@ -166,6 +178,8 @@ void AnimationSystem::Update(World& aWorld, Actor* apActor, RemoteAnimationCompo
         apActor->actorState.flags2 = first.State2;
 
         apActor->LoadAnimationVariables(first.Variables);
+        if (apActor->actorState.IsSittingOrSleeping() && !apActor->GetExtension()->IsRemotePlayer())
+            apActor->SetSpeed(0.f);
 
         aAnimationComponent.LastRanAction = first;
 
@@ -291,6 +305,9 @@ void AnimationSystem::Update(World& aWorld, Actor* apActor, RemoteAnimationCompo
             aAnimationComponent.ReplayCount--;
 
         actions.pop_front();
+        continue;
+    }
+    break;
     }
 }
 

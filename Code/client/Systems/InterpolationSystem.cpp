@@ -7,6 +7,7 @@
 #include <Misc/MiddleProcess.h>
 
 #include <Games/References.h>
+#include <Games/ActorExtension.h>
 #include <World.h>
 
 namespace
@@ -30,7 +31,11 @@ void InterpolationSystem::Update(Actor* apActor, InterpolationComponent& aInterp
     auto& movements = aInterpolationComponent.TimePoints;
 
     if (movements.size() < 2)
+    {
+        if (apActor && !apActor->IsDead() && !apActor->GetExtension()->IsRemotePlayer())
+            apActor->SetSpeed(0.f);
         return;
+    }
 
     const double cRenderTick = clock.GetRenderTick();
 
@@ -92,33 +97,55 @@ void InterpolationSystem::Update(Actor* apActor, InterpolationComponent& aInterp
     aInterpolationComponent.IsExtrapolating = isExtrapolating;
     aInterpolationComponent.Position = position + positionError;
 
-    // Don't try to move a null actor
-    if (!apActor)
+    // Don't try to move a null actor, or overwrite a dead actor's local ragdoll physics/loot bounds
+    if (!apActor || apActor->IsDead())
         return;
 
-    apActor->ForcePosition(aInterpolationComponent.Position);
+    const bool cIsSittingOrSleeping = apActor->actorState.IsSittingOrSleeping();
+    if (cIsSittingOrSleeping)
+    {
+        const glm::vec2 cCurrentXY(apActor->position.x, apActor->position.y);
+        const glm::vec2 cTargetXY(aInterpolationComponent.Position.x, aInterpolationComponent.Position.y);
+        if (glm::distance(cCurrentXY, cTargetXY) >= 128.f)
+            apActor->ForcePosition(aInterpolationComponent.Position);
+    }
+    else
+    {
+        apActor->ForcePosition(aInterpolationComponent.Position);
+    }
+
     apActor->LoadAnimationVariables(second.Variables);
+
+    const bool cStoppedExtrapolating = cRenderTick > static_cast<double>(second.Tick) + cMaxExtrapolation;
+    const bool cNotMoving = glm::distance(first.Position, second.Position) < 1.0f;
+    if ((cStoppedExtrapolating || cNotMoving || cIsSittingOrSleeping) && !apActor->GetExtension()->IsRemotePlayer())
+    {
+        apActor->SetSpeed(0.f);
+    }
 
     if (apActor->currentProcess && apActor->currentProcess->middleProcess)
     {
         apActor->currentProcess->middleProcess->direction = second.Direction;
     }
 
-    auto rotA = first.Rotation;
-    auto rotB = second.Rotation;
+    if (!cIsSittingOrSleeping)
+    {
+        auto rotA = first.Rotation;
+        auto rotB = second.Rotation;
 
-    const auto deltaX = TiltedPhoques::DeltaAngle(rotA.x, rotB.x, true) * delta;
-    const auto deltaY = TiltedPhoques::DeltaAngle(rotA.y, rotB.y, true) * delta;
-    const auto deltaZ = TiltedPhoques::DeltaAngle(rotA.z, rotB.z, true) * delta;
+        const auto deltaX = TiltedPhoques::DeltaAngle(rotA.x, rotB.x, true) * delta;
+        const auto deltaY = TiltedPhoques::DeltaAngle(rotA.y, rotB.y, true) * delta;
+        const auto deltaZ = TiltedPhoques::DeltaAngle(rotA.z, rotB.z, true) * delta;
 
-    auto finalX = TiltedPhoques::Mod(rotA.x + deltaX, float(TiltedPhoques::Pi * 2));
-    if (finalX > 0.f && finalX > float(TiltedPhoques::Pi / 2))
-        finalX -= TiltedPhoques::Pi * 2;
+        auto finalX = TiltedPhoques::Mod(rotA.x + deltaX, float(TiltedPhoques::Pi * 2));
+        if (finalX > 0.f && finalX > float(TiltedPhoques::Pi / 2))
+            finalX -= TiltedPhoques::Pi * 2;
 
-    const auto finalY = TiltedPhoques::Mod(rotA.y + deltaY, float(TiltedPhoques::Pi * 2));
-    const auto finalZ = TiltedPhoques::Mod(rotA.z + deltaZ, float(TiltedPhoques::Pi * 2));
+        const auto finalY = TiltedPhoques::Mod(rotA.y + deltaY, float(TiltedPhoques::Pi * 2));
+        const auto finalZ = TiltedPhoques::Mod(rotA.z + deltaZ, float(TiltedPhoques::Pi * 2));
 
-    apActor->SetRotation(finalX, finalY, finalZ);
+        apActor->SetRotation(finalX, finalY, finalZ);
+    }
 }
 
 void InterpolationSystem::AddPoint(InterpolationComponent& aInterpolationComponent, InterpolationComponent::TimePoint aPoint, const double aArrivalTime) noexcept

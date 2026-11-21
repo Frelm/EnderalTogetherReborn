@@ -26,11 +26,27 @@ thread_local int g_forcedActionResult = -1;
 
 uint8_t TP_MAKE_THISCALL(HookPerformAction, ActorMediator, TESActionData* apAction)
 {
+    if (!apAction)
+        return 0;
+
     auto pActor = apAction->actor;
+    if (!pActor)
+        return TiltedPhoques::ThisCall(RealPerformAction, apThis, apAction);
+
     const auto pExtension = pActor->GetExtension();
+    if (!pExtension)
+        return TiltedPhoques::ThisCall(RealPerformAction, apThis, apAction);
 
     if (!pExtension->IsRemote() || g_forceAnimation)
     {
+        if (!apAction->action)
+        {
+            const auto res = TiltedPhoques::ThisCall(RealPerformAction, apThis, apAction);
+            if (g_forceAnimation)
+                g_forcedActionResult = res;
+            return res;
+        }
+
         ActionEvent action;
         action.State1 = pActor->actorState.flags1;
         action.State2 = pActor->actorState.flags2;
@@ -53,8 +69,8 @@ uint8_t TP_MAKE_THISCALL(HookPerformAction, ActorMediator, TESActionData* apActi
         if (apAction->someFlag == 1 || g_forceAnimation)
             return res;
 
-        action.EventName = apAction->eventName.AsAscii();
-        action.TargetEventName = apAction->targetEventName.AsAscii();
+        action.EventName = apAction->eventName.AsAscii() ? apAction->eventName.AsAscii() : "";
+        action.TargetEventName = apAction->targetEventName.AsAscii() ? apAction->targetEventName.AsAscii() : "";
         action.IdleId = apAction->idleForm ? apAction->idleForm->formID : 0;
 
         // Temporary cast probe: the owner's side of the casting actions, to line up with what the remote replays.
@@ -104,6 +120,9 @@ bool ActorMediator::PerformAction(TESActionData* apAction) noexcept
 
 bool ActorMediator::ForceAction(TESActionData* apAction) noexcept
 {
+    if (!apAction || !apAction->actor || !apAction->action)
+        return false;
+
     TP_THIS_FUNCTION(TAnimationStep, uint8_t, ActorMediator, TESActionData*);
     using TApplyAnimationVariables = void*(void*, TESActionData*);
 

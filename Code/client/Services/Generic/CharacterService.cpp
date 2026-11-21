@@ -277,6 +277,7 @@ void CharacterService::OnActorRemoved(const ActorRemovedEvent& acEvent) noexcept
         pActor->GetExtension()->Reconciliation = ActorExtension::ReconciliationStage::None;
 
     m_pendingLeveledConforms.erase(acEvent.FormId);
+    m_deadActorSyncs.erase(acEvent.FormId);
 
     auto view = m_world.view<FormIdComponent>();
     const auto entityIt = std::find_if(view.begin(), view.end(), [view, formId = acEvent.FormId](auto aEntity) { return view.get<FormIdComponent>(aEntity).Id == formId; });
@@ -306,6 +307,16 @@ void CharacterService::OnActorRemoved(const ActorRemovedEvent& acEvent) noexcept
 namespace
 {
 // Temporary diagnostics for remote players whose head does not render on 1.5.97.
+bool HasSittingOrSleepingAction(const ActionReplayChain& acChain) noexcept
+{
+    for (const auto& action : acChain.Actions)
+    {
+        if (((action.State1 >> 14) & 0xF) != 0)
+            return true;
+    }
+    return false;
+}
+
 void LogHeadDiagnostics(const char* acLabel, Actor* apActor) noexcept
 {
     if (!apActor)
@@ -451,6 +462,7 @@ void CharacterService::OnDisconnected(const DisconnectedEvent& acDisconnectedEve
     }
 
     m_pendingLeveledConforms.clear();
+    m_deadActorSyncs.clear();
 }
 
 void CharacterService::OnAssignCharacter(const AssignCharacterResponse& acMessage) noexcept
@@ -578,7 +590,7 @@ void CharacterService::OnAssignCharacter(const AssignCharacterResponse& acMessag
         pActor->GetExtension()->SetRemote(true);
 
         m_world.remove<EarlyAnimationBufferComponent>(cEntity);
-        InterpolationSystem::Setup(m_world, cEntity);
+        InterpolationSystem::Setup(m_world, cEntity).Position = pActor->position;
         AnimationSystem::Setup(m_world, cEntity);
         AnimationSystem::AddActionsForReplay(m_world.get<RemoteAnimationComponent>(cEntity), acMessage.ActionsToReplay);
 
@@ -588,7 +600,22 @@ void CharacterService::OnAssignCharacter(const AssignCharacterResponse& acMessag
 
         ReconcileActorData(cEntity, pActor, acMessage.OwnershipEpoch, actorData, true, false);
 
-        MoveActor(pActor, acMessage.WorldSpaceId, acMessage.CellId, acMessage.Position);
+        const bool isSittingReplay = HasSittingOrSleepingAction(acMessage.ActionsToReplay);
+        const uint32_t targetCellId = acMessage.CellId ? m_world.GetModSystem().GetGameId(acMessage.CellId) : 0;
+        const TESObjectCELL* pCurrentCell = pActor->GetParentCellEx();
+        const glm::vec2 currentXY(pActor->position.x, pActor->position.y);
+        const glm::vec2 targetXY(acMessage.Position.x, acMessage.Position.y);
+
+        if ((pActor->actorState.IsSittingOrSleeping() || isSittingReplay) &&
+            pCurrentCell && (!targetCellId || pCurrentCell->formID == targetCellId) &&
+            glm::distance(currentXY, targetXY) < 256.f)
+        {
+            spdlog::debug("Preserving seated position for remote actor {:X} in cell {:X}", pActor->formID, pCurrentCell->formID);
+        }
+        else
+        {
+            MoveActor(pActor, acMessage.WorldSpaceId, acMessage.CellId, acMessage.Position);
+        }
 
         // The owner's leveled pick rides the assignment response for actors we discovered ourselves
         ApplyLeveledNpcPick(pActor, acMessage.LeveledNpcPickId);
@@ -735,7 +762,32 @@ void CharacterService::OnCharacterSpawn(const CharacterSpawnRequest& acMessage) 
 
     pActor->rotation.x = acMessage.Rotation.x;
     pActor->rotation.z = acMessage.Rotation.y;
-    pActor->MoveTo(PlayerCharacter::Get()->parentCell, acMessage.Position);
+    TESObjectCELL* pTargetCell = PlayerCharacter::Get()->parentCell;
+    const bool isSameCell = pTargetCell && pActor->GetParentCellEx() == pTargetCell;
+    const bool isSittingActor = pActor->actorState.IsSittingOrSleeping() || HasSittingOrSleepingAction(acMessage.ActionsToReplay);
+    const glm::vec2 currentXY(pActor->position.x, pActor->position.y);
+    const glm::vec2 targetXY(acMessage.Position.x, acMessage.Position.y);
+    const glm::vec3 currentPos(pActor->position.x, pActor->position.y, pActor->position.z);
+    const glm::vec3 targetPos(acMessage.Position.x, acMessage.Position.y, acMessage.Position.z);
+
+    if (acMessage.FormId != GameId{} && isSameCell)
+    {
+        if (isSittingActor && glm::distance(currentXY, targetXY) < 256.f)
+        {
+            spdlog::debug("Preserving seated spawn position for actor {:X}", pActor->formID);
+        }
+        else if (glm::distance(currentPos, targetPos) >= 128.f)
+        {
+            if (glm::distance(currentPos, targetPos) < 1024.f)
+                pActor->ForcePosition(acMessage.Position);
+            else
+                pActor->MoveTo(pTargetCell, acMessage.Position);
+        }
+    }
+    else
+    {
+        pActor->MoveTo(pTargetCell, acMessage.Position);
+    }
     pActor->SetActorValues(acMessage.InitialActorValues);
 
     pActor->GetExtension()->SetPlayer(acMessage.IsPlayer);
@@ -764,7 +816,7 @@ void CharacterService::OnCharacterSpawn(const CharacterSpawnRequest& acMessage) 
     m_world.emplace_or_replace<RemoteComponent>(*entity, acMessage.ServerId, pActor->formID, acMessage.OwnershipEpoch);
 
     auto& interpolationComponent = InterpolationSystem::Setup(m_world, *entity);
-    interpolationComponent.Position = acMessage.Position;
+    interpolationComponent.Position = pActor->position;
 
     AnimationSystem::Setup(m_world, *entity);
 
@@ -1450,6 +1502,27 @@ void CharacterService::MoveActor(const Actor* apActor, const GameId& acWorldSpac
         return;
     }
 
+    if (apActor->GetParentCellEx() == pCell)
+    {
+        const glm::vec2 cCurrentXY(apActor->position.x, apActor->position.y);
+        const glm::vec2 cTargetXY(acPosition.x, acPosition.y);
+        const glm::vec3 cCurrentPos(apActor->position.x, apActor->position.y, apActor->position.z);
+        const glm::vec3 cTargetPos(acPosition.x, acPosition.y, acPosition.z);
+
+        if (apActor->actorState.IsSittingOrSleeping() && glm::distance(cCurrentXY, cTargetXY) < 256.f)
+            return;
+
+        const float cDist = glm::distance(cCurrentPos, cTargetPos);
+        if (cDist < 128.f)
+            return;
+
+        if (cDist < 1024.f)
+        {
+            const_cast<Actor*>(apActor)->ForcePosition(acPosition);
+            return;
+        }
+    }
+
     apActor->MoveTo(pCell, acPosition);
 }
 
@@ -2004,7 +2077,34 @@ void CharacterService::RunLocalUpdates() const noexcept
         // for the snapshot after it anyway, so sending actions along with that snapshot doesn't delay them
         AnimationSystem::SerializeActions(actionsMessage, localComponent, animationComponent);
 
-        if (!cIsFullSnapshot && pActor != pPlayer && !pActor->IsMount() && !pActor->IsInCombat())
+        bool forceDeadRagdollSync = false;
+        if (pActor != pPlayer)
+        {
+            if (pActor->IsDead())
+            {
+                const glm::vec3 cCurrentPos(pActor->position.x, pActor->position.y, pActor->position.z);
+                auto it = m_deadActorSyncs.find(pActor->formID);
+                if (it == m_deadActorSyncs.end())
+                {
+                    m_deadActorSyncs[pActor->formID] = {now, cCurrentPos};
+                    forceDeadRagdollSync = true;
+                }
+                else if (now - it->second.DeathTime <= 6s)
+                {
+                    if (glm::distance(cCurrentPos, it->second.LastSyncedPos) > 2.f || cIsFullSnapshot)
+                    {
+                        it.value().LastSyncedPos = cCurrentPos;
+                        forceDeadRagdollSync = true;
+                    }
+                }
+            }
+            else
+            {
+                m_deadActorSyncs.erase(pActor->formID);
+            }
+        }
+
+        if (!cIsFullSnapshot && pActor != pPlayer && !pActor->IsMount() && !pActor->IsInCombat() && !forceDeadRagdollSync)
             continue;
 
         if (movementMessage.Updates.size() == cMaxActorsPerMovementMessage)
