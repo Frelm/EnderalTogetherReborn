@@ -101,6 +101,13 @@ uint8_t TP_MAKE_THISCALL(HookPerformAction, ActorMediator, TESActionData* apActi
         return res;
     }
 
+    // Allow explicit quest/scene idles and paired killmoves (e.g. Tharael killing the Giant via PlayIdleWithTarget)
+    // on non-player NPCs to succeed even when the actor is currently marked remote.
+    if (!pExtension->IsRemotePlayer() && (apAction->idleForm != nullptr || pActor->IsInScene()))
+    {
+        return TiltedPhoques::ThisCall(RealPerformAction, apThis, apAction);
+    }
+
     return 0;
 }
 

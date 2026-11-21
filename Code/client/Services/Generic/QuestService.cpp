@@ -121,6 +121,12 @@ BSTEventResult QuestService::OnEvent(const TESQuestStartStopEvent* apEvent, cons
         return BSTEventResult::kOk;
     }
 
+    if (IsCompanionRole())
+    {
+        spdlog::debug("Companion Role: suppressed outgoing quest start/stop event for {:X}", apEvent->formId);
+        return BSTEventResult::kOk;
+    }
+
     spdlog::info("Quest start/stop event: {:X}", apEvent->formId);
 
     if (TESQuest* pQuest = Cast<TESQuest>(TESForm::GetById(apEvent->formId)))
@@ -172,6 +178,12 @@ BSTEventResult QuestService::OnEvent(const TESQuestStageEvent* apEvent, const Ev
     if (!m_world.Get().GetPartyService().IsInParty())
     {
         NotifyOverlayOfQuestUpdate(apEvent->formId);
+        return BSTEventResult::kOk;
+    }
+
+    if (IsCompanionRole())
+    {
+        spdlog::debug("Companion Role: suppressed outgoing quest stage event for {:X}, stage {}", apEvent->formId, apEvent->stageId);
         return BSTEventResult::kOk;
     }
 
@@ -522,7 +534,7 @@ void QuestService::OnQuestUpdate(const NotifyQuestUpdate& aUpdate) noexcept
 
     // A member stage the leader's playing scene checks can push it past its own scripts (a phase ending before its lines
     // and scripts ran), so hold it, and the stages after it, until the scene gets there or reaches it itself.
-    const bool cIsLeaderStage = aUpdate.Status == NotifyQuestUpdate::StageUpdate && m_world.GetPartyService().IsLeader();
+    const bool cIsLeaderStage = aUpdate.Status == NotifyQuestUpdate::StageUpdate && !IsCompanionRole() && m_world.GetPartyService().IsLeader();
     HeldStages* pHeld = cIsLeaderStage || aUpdate.Status == NotifyQuestUpdate::Stopped ? GetHeldStages(formId, pQuest) : nullptr;
     if (cIsLeaderStage && (pHeld || IsCheckedByPlayingScene(pQuest, aUpdate.Stage)))
     {
@@ -621,12 +633,12 @@ static constexpr std::array kNonSyncableQuestIds = std::to_array<uint32_t>({
 static bool IsEnderalActive() noexcept
 {
     static int s_isEnderal = -1;
-    if (s_isEnderal == -1)
+    if (s_isEnderal != 1)
     {
         auto* pModManager = ModManager::Get();
-        s_isEnderal = (pModManager && pModManager->GetByName("Enderal - Forgotten Stories.esm") != nullptr) ? 1 : 0;
-        if (s_isEnderal)
+        if (pModManager && pModManager->GetByName("Enderal - Forgotten Stories.esm") != nullptr)
         {
+            s_isEnderal = 1;
             spdlog::info("Enderal detected: activating Enderal quest compatibility guards.");
         }
     }
@@ -635,9 +647,11 @@ static bool IsEnderalActive() noexcept
 
 struct EnderalQuestConfig
 {
-    bool disableQuestSync = true;
+    bool disableQuestSync = false;
     bool blacklistSystemQuests = true;
+    bool isCompanionRole = false;
     bool loaded = false;
+    std::string loadedPath = "Data/SkyrimTogetherRuntime/EnderalTogether.ini";
 
     void Load()
     {
@@ -647,20 +661,154 @@ struct EnderalQuestConfig
 
         CSimpleIniA ini;
         ini.SetUnicode();
-        if (ini.LoadFile("EnderalTogether.ini") == SI_OK || ini.LoadFile("SkyrimTogetherRuntime/EnderalTogether.ini") == SI_OK)
+        const char* kCandidatePaths[] = {
+            "Data/SkyrimTogetherRuntime/EnderalTogether.ini",
+            "SkyrimTogetherRuntime/EnderalTogether.ini",
+            "EnderalTogether.ini"
+        };
+
+        bool foundFile = false;
+        for (const char* path : kCandidatePaths)
         {
-            disableQuestSync = ini.GetBoolValue("Enderal", "bDisableQuestSync", true);
+            if (ini.LoadFile(path) == SI_OK)
+            {
+                loadedPath = path;
+                foundFile = true;
+                break;
+            }
+        }
+
+        if (foundFile)
+        {
+            disableQuestSync = ini.GetBoolValue("Enderal", "bDisableQuestSync", false);
             blacklistSystemQuests = ini.GetBoolValue("Enderal", "bBlacklistSystemQuests", true);
-            spdlog::info("[EnderalTogether]: Loaded config - bDisableQuestSync={}, bBlacklistSystemQuests={}", disableQuestSync, blacklistSystemQuests);
+            const char* roleStr = ini.GetValue("Enderal", "sPlayerRole", "MainCharacter");
+            if (roleStr && (_stricmp(roleStr, "Companion") == 0 || _stricmp(roleStr, "Follower") == 0))
+                isCompanionRole = true;
+            else
+                isCompanionRole = ini.GetBoolValue("Enderal", "bCompanionRole", false);
+
+            spdlog::info("[EnderalTogether]: Loaded config from '{}' - bDisableQuestSync={}, bBlacklistSystemQuests={}, Role={}",
+                         loadedPath, disableQuestSync, blacklistSystemQuests, isCompanionRole ? "Companion" : "MainCharacter");
         }
         else
         {
-            spdlog::info("[EnderalTogether]: Using default safe Enderal config (bDisableQuestSync=true, bBlacklistSystemQuests=true)");
+            spdlog::info("[EnderalTogether]: Using default Enderal config (bDisableQuestSync=false, bBlacklistSystemQuests=true, Role=MainCharacter)");
         }
+    }
+
+    void Save()
+    {
+        CSimpleIniA ini;
+        ini.SetUnicode();
+        ini.LoadFile(loadedPath.c_str());
+        ini.SetBoolValue("Enderal", "bDisableQuestSync", disableQuestSync);
+        ini.SetBoolValue("Enderal", "bBlacklistSystemQuests", blacklistSystemQuests);
+        ini.SetValue("Enderal", "sPlayerRole", isCompanionRole ? "Companion" : "MainCharacter");
+        ini.SaveFile(loadedPath.c_str());
     }
 };
 
 static EnderalQuestConfig s_enderalQuestConfig;
+static std::atomic<uint64_t> s_lastManualActivateMs{0};
+static std::atomic<uint32_t> s_lastBlockedForceGreetFormId{0};
+static std::atomic<uint64_t> s_lastBlockedForceGreetMs{0};
+
+bool QuestService::IsCompanionRole() noexcept
+{
+    s_enderalQuestConfig.Load();
+    return s_enderalQuestConfig.isCompanionRole;
+}
+
+void QuestService::SetCompanionRole(bool aIsCompanion) noexcept
+{
+    s_enderalQuestConfig.Load();
+    s_enderalQuestConfig.isCompanionRole = aIsCompanion;
+    // Ensure quest sync is active so Companion receives quest stages, scenes, XP, and rewards from Main Character
+    if (aIsCompanion)
+        s_enderalQuestConfig.disableQuestSync = false;
+    s_enderalQuestConfig.Save();
+
+    Utils::ShowHudMessage(aIsCompanion ? "Enderal Role: Companion (Quest dialogues & force-greets disabled)"
+                                       : "Enderal Role: Main Character (Prophet)");
+    spdlog::info("[EnderalTogether]: Switched player role to {}", aIsCompanion ? "Companion" : "MainCharacter");
+}
+
+void QuestService::RecordManualPlayerActivation() noexcept
+{
+    s_lastManualActivateMs.store(GetTickCount64(), std::memory_order_relaxed);
+}
+
+bool QuestService::HadRecentManualPlayerActivation(uint64_t aWindowMs) noexcept
+{
+    const uint64_t lastMs = s_lastManualActivateMs.load(std::memory_order_relaxed);
+    if (lastMs == 0)
+        return false;
+    const uint64_t nowMs = GetTickCount64();
+    return nowMs >= lastMs && (nowMs - lastMs) <= aWindowMs;
+}
+
+void QuestService::RecordBlockedForceGreetSpeaker(uint32_t aFormId) noexcept
+{
+    s_lastBlockedForceGreetFormId.store(aFormId, std::memory_order_relaxed);
+    s_lastBlockedForceGreetMs.store(GetTickCount64(), std::memory_order_relaxed);
+}
+
+bool QuestService::IsBlockedForceGreetSpeaker(uint32_t aFormId, uint64_t aWindowMs) noexcept
+{
+    if (aFormId == 0 || s_lastBlockedForceGreetFormId.load(std::memory_order_relaxed) != aFormId)
+        return false;
+    const uint64_t lastMs = s_lastBlockedForceGreetMs.load(std::memory_order_relaxed);
+    if (lastMs == 0)
+        return false;
+    const uint64_t nowMs = GetTickCount64();
+    return nowMs >= lastMs && (nowMs - lastMs) <= aWindowMs;
+}
+
+bool QuestService::IsStoryOrSideQuest(TESQuest* apQuest) noexcept
+{
+    if (!apQuest)
+        return false;
+
+    const char* id = apQuest->idName.AsAscii();
+    if (id && *id)
+    {
+        // Always allow vendor, trainer, innkeeper, bank, myrad, bard, guard/crime, and generic dialogue quests
+        static constexpr const char* kServiceKeys[] = {
+            "Generic", "Vendor", "Merchant", "Trade", "Trainer", "Train",
+            "Tavern", "Bard", "Bank", "Myrad", "Signpost", "Carriage",
+            "Crime", "Guard", "House", "Home", "Follower", "Hireling",
+            "Barter", "DialogueGeneric", "Rent", "Cure", "Shop"
+        };
+        for (const char* key : kServiceKeys)
+        {
+            const size_t keyLen = std::strlen(key);
+            const size_t idLen = std::strlen(id);
+            for (size_t i = 0; i + keyLen <= idLen; ++i)
+            {
+                if (_strnicmp(id + i, key, keyLen) == 0)
+                    return false;
+            }
+        }
+
+        // Story, Side, Character, and Guild quest prefixes in Enderal
+        static constexpr const char* kStoryPrefixes[] = {
+            "MQ", "_00E_MQ", "NQ", "_00E_NQ", "CQ", "_00E_CQ",
+            "FS_NQ", "_00E_FS_NQ", "FS_CQ", "_00E_FS_CQ", "FS_MQ", "_00E_FS_MQ",
+            "SQ", "_00E_SQ", "_00E_Bounty"
+        };
+        for (const char* prefix : kStoryPrefixes)
+        {
+            if (_strnicmp(id, prefix, std::strlen(prefix)) == 0)
+                return true;
+        }
+    }
+
+    if (apQuest->type != TESQuest::Type::None && apQuest->type != TESQuest::Type::Miscellaneous)
+        return true;
+
+    return !apQuest->stages.Empty() && !IsNonSyncableQuest(apQuest);
+}
 
 bool QuestService::IsNonSyncableQuest(TESQuest* apQuest)
 {

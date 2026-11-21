@@ -44,6 +44,13 @@ public:
     ~QuestService() = default;
 
     static bool IsNonSyncableQuest(TESQuest* apQuest);
+    static bool IsStoryOrSideQuest(TESQuest* apQuest) noexcept;
+    static bool IsCompanionRole() noexcept;
+    static void SetCompanionRole(bool aIsCompanion) noexcept;
+    static void RecordManualPlayerActivation() noexcept;
+    static bool HadRecentManualPlayerActivation(uint64_t aWindowMs = 1200) noexcept;
+    static void RecordBlockedForceGreetSpeaker(uint32_t aFormId) noexcept;
+    static bool IsBlockedForceGreetSpeaker(uint32_t aFormId, uint64_t aWindowMs = 3000) noexcept;
     static void DebugDumpQuests();
     static bool StopQuest(uint32_t aformId);
 

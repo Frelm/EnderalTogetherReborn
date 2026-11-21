@@ -1,5 +1,6 @@
 #include <Services/PartyService.h>
 
+#include <Services/QuestService.h>
 #include <Services/TransportService.h>
 
 #include <Events/UpdateEvent.h>
@@ -121,9 +122,31 @@ void PartyService::OnPartyInfo(const NotifyPartyInfo& acPartyInfo) noexcept
     if (m_inParty)
     {
         spdlog::debug("[PartyService]: Got party info update");
+        const bool cWasLeader = m_isLeader;
         m_isLeader = acPartyInfo.IsLeader;
         m_leaderPlayerId = acPartyInfo.LeaderPlayerId;
         m_partyMembers = acPartyInfo.PlayerIds;
+
+        // If this client is in the Companion role and the server auto-assigned leadership to us
+        // (e.g. after the Main Character disconnected and reconnected), hand leadership back automatically.
+        if (m_isLeader && QuestService::IsCompanionRole())
+        {
+            const uint32_t cLocalId = m_transport.GetLocalPlayerId();
+            for (uint32_t memberId : m_partyMembers)
+            {
+                if (memberId != cLocalId)
+                {
+                    spdlog::info("[PartyService]: Companion role handing party leadership back to player {}", memberId);
+                    ChangePartyLeader(memberId);
+                    break;
+                }
+            }
+        }
+        else if (!cWasLeader && m_isLeader && !QuestService::IsCompanionRole())
+        {
+            // Main Character regained party leadership: reclaim ownership of loaded NPCs
+            m_world.GetDispatcher().trigger(PartyJoinedEvent(true));
+        }
 
         // TODO: this can be done a bit prettier
         if (m_isLeader)
@@ -171,7 +194,21 @@ void PartyService::OnPartyJoined(const NotifyPartyJoined& acPartyJoined) noexcep
     m_partyMembers = acPartyJoined.PlayerIds;
     m_invitations.clear();
 
-    m_world.GetDispatcher().trigger(PartyJoinedEvent(m_isLeader));
+    if (m_isLeader && QuestService::IsCompanionRole())
+    {
+        const uint32_t cLocalId = m_transport.GetLocalPlayerId();
+        for (uint32_t memberId : m_partyMembers)
+        {
+            if (memberId != cLocalId)
+            {
+                spdlog::info("[PartyService]: Companion role handing party leadership to player {}", memberId);
+                ChangePartyLeader(memberId);
+                break;
+            }
+        }
+    }
+
+    m_world.GetDispatcher().trigger(PartyJoinedEvent(m_isLeader && !QuestService::IsCompanionRole()));
 }
 
 void PartyService::OnPartyLeft(const NotifyPartyLeft& acPartyLeft) noexcept

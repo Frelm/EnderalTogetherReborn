@@ -2,6 +2,7 @@
 #include "MenuTopicManager.h"
 
 #include <Events/SubtitleEvent.h>
+#include <Services/QuestService.h>
 
 #include <TESObjectREFR.h>
 #include <Games/ActorExtension.h>
@@ -33,6 +34,12 @@ void* SubtitleManager::HideSubtitle(TESObjectREFR* apSpeaker) noexcept
 
 void TP_MAKE_THISCALL(HookShowSubtitle, SubtitleManager, TESObjectREFR* apSpeaker, const char* apSubtitleText, bool aIsInDialogue)
 {
+    if (QuestService::IsCompanionRole() && apSpeaker && !MenuTopicManager::IsPlayerDialogueSpeaker(apSpeaker) &&
+        QuestService::IsBlockedForceGreetSpeaker(apSpeaker->formID, 3000))
+    {
+        return;
+    }
+
     Actor* pActor = Cast<Actor>(apSpeaker);
     const bool isNpc = pActor && !pActor->GetExtension()->IsPlayer();
     const bool isPlayerDialogue = isNpc && MenuTopicManager::IsPlayerDialogueSpeaker(pActor);

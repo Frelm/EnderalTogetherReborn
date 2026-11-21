@@ -7,6 +7,7 @@
 
 #include <World.h>
 #include <Services/PapyrusService.h>
+#include <Services/QuestService.h>
 #include <Events/ActivateEvent.h>
 #include <Events/InventoryChangeEvent.h>
 #include <Events/ScriptAnimationEvent.h>
@@ -1212,6 +1213,25 @@ bool TP_MAKE_THISCALL(HookPlayAnimation, void, uint32_t auiStackID, TESObjectREF
 bool TP_MAKE_THISCALL(HookActivate, TESObjectREFR, TESObjectREFR* apActivator, uint8_t aUnk1, TESBoundObject* apObjectToGet, int32_t aCount, char aDefaultProcessing)
 {
     Actor* pActivator = Cast<Actor>(apActivator);
+
+    if (pActivator && pActivator == PlayerCharacter::Get())
+    {
+        if ((GetAsyncKeyState('E') & 0x8001) != 0 || (GetAsyncKeyState(VK_RETURN) & 0x8001) != 0 ||
+            (GetAsyncKeyState(VK_SPACE) & 0x8001) != 0)
+        {
+            QuestService::RecordManualPlayerActivation();
+        }
+
+        if (apThis && apThis->formType == FormType::Character && !ScopedActivateOverride::IsOverriden())
+        {
+            Actor* pTargetActor = static_cast<Actor*>(apThis);
+            if (!pTargetActor->IsDead() && QuestService::IsCompanionRole() && !QuestService::HadRecentManualPlayerActivation(1200))
+            {
+                spdlog::info("Companion Role: blocked forced dialogue activation on NPC {:X}", apThis->formID);
+                return false;
+            }
+        }
+    }
 
     // Exclude books from activation since only reading them removes them from the cell
     // Note: Books are now unsynced

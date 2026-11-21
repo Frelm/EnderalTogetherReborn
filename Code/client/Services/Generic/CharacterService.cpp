@@ -9,6 +9,7 @@
 #include <Services/TransportService.h>
 
 #include <Games/References.h>
+#include <Games/Misc/MenuTopicManager.h>
 #include <Games/Misc/SubtitleManager.h>
 
 #include <Forms/TESNPC.h>
@@ -396,6 +397,32 @@ void CharacterService::RunHeadDiagnostics() const noexcept
 
 void CharacterService::OnUpdate(const UpdateEvent& acUpdateEvent) noexcept
 {
+    static bool s_wasDialogueMenuOpen = false;
+    auto* pTopicManager = MenuTopicManager::Get();
+    const bool cIsDialogueMenuOpen = pTopicManager && pTopicManager->menuOpen;
+
+    if (!cIsDialogueMenuOpen)
+    {
+        if ((GetAsyncKeyState('E') & 0x8001) != 0 || (GetAsyncKeyState(VK_RETURN) & 0x8001) != 0 ||
+            (GetAsyncKeyState(VK_SPACE) & 0x8001) != 0)
+        {
+            QuestService::RecordManualPlayerActivation();
+        }
+    }
+    else if (QuestService::IsCompanionRole())
+    {
+        if (!s_wasDialogueMenuOpen && !QuestService::HadRecentManualPlayerActivation(1200))
+        {
+            spdlog::info("Companion Role: cancelling NPC force-greet dialogue menu");
+            MenuTopicManager::ForceCloseDialogueMenu();
+        }
+        else if ((GetAsyncKeyState(VK_TAB) & 0x8001) != 0 || (GetAsyncKeyState(VK_ESCAPE) & 0x8001) != 0)
+        {
+            MenuTopicManager::ForceCloseDialogueMenu();
+        }
+    }
+    s_wasDialogueMenuOpen = cIsDialogueMenuOpen;
+
     RunHeadDiagnostics();
     RunSpawnUpdates();
     RunLocalUpdates();
@@ -1465,8 +1492,8 @@ void CharacterService::OnNotifyActorTeleport(const NotifyActorTeleport& acMessag
 
 void CharacterService::OnPartyJoinedEvent(const PartyJoinedEvent& acEvent) noexcept
 {
-    // Takes ownership of all actors
-    if (acEvent.IsLeader)
+    // Takes ownership of all actors (Main Character only; Companion yields ownership)
+    if (acEvent.IsLeader && !QuestService::IsCompanionRole())
     {
         auto view = m_world.view<FormIdComponent>(entt::exclude<ObjectComponent>);
         Vector<entt::entity> entities(view.begin(), view.end());
@@ -1544,7 +1571,7 @@ void CharacterService::ProcessNewEntity(entt::entity aEntity) const noexcept
     {
         // TODO(cosideci): don't just take all actors (i.e. from other parties),
         // maybe check it server side, add a variable to the request.
-        if (m_world.GetPartyService().IsLeader() && !pActor->IsTemporary() && !pActor->IsMount())
+        if (!QuestService::IsCompanionRole() && m_world.GetPartyService().IsLeader() && !pActor->IsTemporary() && !pActor->IsMount())
         {
             spdlog::info("Sending ownership claim for actor {:X} with server id {:X}", pActor->formID, pRemoteComponent->Id);
 

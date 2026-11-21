@@ -20,6 +20,7 @@
 #include <Events/MountEvent.h>
 #include <Events/DialogueEvent.h>
 #include <Games/Misc/MenuTopicManager.h>
+#include <Services/QuestService.h>
 #include <Events/HitEvent.h>
 #include <Events/RemoveSpellEvent.h>
 
@@ -952,7 +953,15 @@ char TP_MAKE_THISCALL(HookSetPosition, Actor, NiPoint3& aPosition)
     const auto bIsRemote = pExtension && pExtension->IsRemote();
 
     if (bIsRemote && !apThis->IsDead() && !ScopedReferencesOverride::IsOverriden())
-        return 1;
+    {
+        // Allow Papyrus quest/scene scripts (e.g. Tharael Arena cinematic, MQ05 Aixon teleport)
+        // to teleport non-player NPCs even if they are currently remote.
+        const bool cIsRemoteNpc = !pExtension->IsRemotePlayer();
+        const float cMoveDist = glm::distance(glm::vec3(apThis->position.x, apThis->position.y, apThis->position.z),
+                                              glm::vec3(aPosition.x, aPosition.y, aPosition.z));
+        if (!(cIsRemoteNpc && (apThis->IsInScene() || cMoveDist >= 64.f)))
+            return 1;
+    }
 
     // Don't interfere with non actor references, or the player, or if we are calling our self
     if (apThis->formType != Actor::Type || apThis == PlayerCharacter::Get() || apThis->IsDead() || ScopedReferencesOverride::IsOverriden())
@@ -1255,6 +1264,12 @@ static TSpeakSoundFunction* RealSpeakSoundFunction = nullptr;
 
 float TP_MAKE_THISCALL(HookSpeakSoundFunction, Actor, const char* apName, uint32_t* a3, uint32_t a4, uint32_t a5, uint32_t a6, uint64_t a7, uint64_t a8, uint64_t a9, bool a10, uint64_t a11, bool a12, bool a13, bool a14)
 {
+    if (QuestService::IsCompanionRole() && apThis && !MenuTopicManager::IsPlayerDialogueSpeaker(apThis) &&
+        QuestService::IsBlockedForceGreetSpeaker(apThis->formID, 3000))
+    {
+        return 0.f;
+    }
+
     // Note most dialogues invoke SpeakSoundFunction twice, an initial call that queues it to an update thread, then a reinvocation.
 
     spdlog::debug("a3: {:X}, a4: {}, a5: {}, a6: {}, a7: {}, a8: {:X}, a9: {:X}, a10: {}, a11: {:X}, a12: {}, a13: {}, a14: {}", (uint64_t)a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14);

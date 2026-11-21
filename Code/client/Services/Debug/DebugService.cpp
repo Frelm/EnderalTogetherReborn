@@ -18,6 +18,7 @@
 #include <Events/SubtitleEvent.h>
 #include <Events/MoveActorEvent.h>
 #include <Events/ConnectionErrorEvent.h>
+#include <Events/PartyJoinedEvent.h>
 
 #include <Games/References.h>
 
@@ -327,6 +328,41 @@ void DebugService::OnDraw() noexcept
                 ImageSpaceModifierInstance::Stop(pModifier);
             }
         }
+        ImGui::EndMenu();
+    }
+    if (ImGui::BeginMenu("Enderal Role"))
+    {
+        const bool cIsCompanion = QuestService::IsCompanionRole();
+        ImGui::Text("Current Role: %s", cIsCompanion ? "Companion" : "Main Character (Prophet)");
+        ImGui::Separator();
+
+        if (ImGui::RadioButton("Main Character (Prophet)", !cIsCompanion))
+        {
+            QuestService::SetCompanionRole(false);
+            if (m_world.GetPartyService().IsInParty() && m_world.GetPartyService().IsLeader())
+                m_world.GetDispatcher().trigger(PartyJoinedEvent(true));
+        }
+        ImGui::SetItemTooltip("Full quest progression, NPC force-greets, dialogue choices, and priority NPC ownership.");
+
+        if (ImGui::RadioButton("Companion", cIsCompanion))
+        {
+            QuestService::SetCompanionRole(true);
+            auto& party = m_world.GetPartyService();
+            if (party.IsInParty() && party.IsLeader())
+            {
+                const uint32_t cLocalId = m_transport.GetLocalPlayerId();
+                for (uint32_t memberId : party.GetPartyMembers())
+                {
+                    if (memberId != cLocalId)
+                    {
+                        party.ChangePartyLeader(memberId);
+                        break;
+                    }
+                }
+            }
+        }
+        ImGui::SetItemTooltip("Blocks NPC force-greets and quest dialogue choices, yields NPC ownership to Main Character,\nwhile still receiving all quest stages, scenes, XP, and completion rewards.");
+
         ImGui::EndMenu();
     }
 #if (!IS_MASTER)
